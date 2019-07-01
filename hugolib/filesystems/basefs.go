@@ -277,6 +277,11 @@ func NewBase(p *paths.Paths, options ...func(*BaseFs) error) (*BaseFs, error) {
 		return nil, err
 	}
 
+	dataFs, absDataDirs, err := createDataFs(fs.Source, p.WorkingDir, p.DefaultContentLanguage, p.Languages)
+	if err != nil {
+		return nil, err
+	}
+
 	// Make sure we don't have any overlapping content dirs. That will never work.
 	for i, d1 := range absContentDirs {
 		for j, d2 := range absContentDirs {
@@ -309,6 +314,12 @@ func NewBase(p *paths.Paths, options ...func(*BaseFs) error) (*BaseFs, error) {
 		SourceFs: fs.Source,
 		Fs:       contentFs,
 		Dirnames: absContentDirs,
+	}
+
+	sourceFilesystems.Data = &SourceFilesystem{
+		SourceFs: fs.Source,
+		Fs:       dataFs,
+		Dirnames: absDataDirs,
 	}
 
 	b.SourceFilesystems = sourceFilesystems
@@ -346,13 +357,13 @@ func (b *sourceFilesystemsBuilder) Build() (*SourceFilesystems, error) {
 
 	b.hasTheme = len(b.absThemeDirs) > 0
 
-	sfs, err := b.createRootMappingFs("dataDir", "data")
+	/*sfs, err := b.createRootMappingFs("dataDir", "data")
 	if err != nil {
 		return nil, err
 	}
-	b.result.Data = sfs
+	b.result.Data = sfs*/
 
-	sfs, err = b.createRootMappingFs("i18nDir", "i18n")
+	sfs, err := b.createRootMappingFs("i18nDir", "i18n")
 	if err != nil {
 		return nil, err
 	}
@@ -691,6 +702,92 @@ func createContentOverlayFs(source afero.Fs,
 	}
 
 	base, err := createContentOverlayFs(source, workingDir, languages[1:], languageSet, absContentDirs)
+	if err != nil {
+		return nil, err
+	}
+
+	return hugofs.NewLanguageCompositeFs(base, overlay), nil
+
+}
+
+func createDataFs(fs afero.Fs,
+	workingDir,
+	defaultDataLanguage string,
+	languages langs.Languages) (afero.Fs, []string, error) {
+
+	var dataLanguages langs.Languages
+	var dataDirSeen = make(map[string]bool)
+	languageSet := make(map[string]bool)
+
+	// createRootMappingFs needs to be here?? for default data setup
+	// we need to read /data/ and /themes/data/ first
+
+	// The default data language needs to be first.
+	for _, language := range languages {
+		if language.Lang == defaultDataLanguage {
+			dataLanguages = append(dataLanguages, language)
+			dataDirSeen[language.DataDir] = true
+		}
+		languageSet[language.Lang] = true
+	}
+
+	for _, language := range languages {
+		if dataDirSeen[language.DataDir] {
+			continue
+		}
+		if language.DataDir == "" {
+			language.DataDir = defaultDataLanguage
+		}
+		dataDirSeen[language.DataDir] = true
+		dataLanguages = append(dataLanguages, language)
+
+	}
+
+	var absDataDirs []string
+
+	fs, err := createDataOverlayFs(fs, workingDir, dataLanguages, languageSet, &absDataDirs)
+	return fs, absDataDirs, err
+
+}
+
+func createDataOverlayFs(source afero.Fs,
+	workingDir string,
+	languages langs.Languages,
+	languageSet map[string]bool,
+	absDataDirs *[]string) (afero.Fs, error) {
+	if len(languages) == 0 {
+		return source, nil
+	}
+
+	language := languages[0]
+
+	dataDir := language.DataDir
+	if dataDir == "" {
+		panic("missing dataDir")
+	}
+
+	absDataDir := paths.AbsPathify(workingDir, language.DataDir)
+	if !strings.HasSuffix(absDataDir, paths.FilePathSeparator) {
+		absDataDir += paths.FilePathSeparator
+	}
+
+	// If root, remove the second '/'
+	if absDataDir == "//" {
+		absDataDir = paths.FilePathSeparator
+	}
+
+	if len(absDataDir) < 6 {
+		return nil, fmt.Errorf("invalid data dir %q: Path is too short", absDataDir)
+	}
+
+	*absDataDirs = append(*absDataDirs, absDataDir)
+
+	overlay := hugofs.NewLanguageFs(language.Lang, languageSet, afero.NewBasePathFs(source, absDataDir))
+	if len(languages) == 1 {
+		return overlay, nil
+	}
+
+	base, err := createDataOverlayFs(source, workingDir, languages[1:], languageSet, absDataDirs)
 	if err != nil {
 		return nil, err
 	}

@@ -198,6 +198,17 @@ func (h *HugoSites) process(config *BuildCfg, events ...fsnotify.Event) error {
 		return err
 	}
 
+	// because we only process one site but we want data per site
+	// lets read data per site
+	if len(h.Sites) > 1 {
+		// The first is initialized during process; initialize the rest
+		for _, site := range h.Sites[1:] {
+			if err := site.readDataFromSourceFS(); err != nil {
+				return err
+			}
+		}
+	}
+
 	return firstSite.process(*config)
 
 }

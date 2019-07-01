@@ -934,6 +934,13 @@ func (s *Site) handleDataFile(r source.ReadableFile) error {
 	// Crawl in data tree to insert data
 	current = s.Data
 	keyParts := strings.Split(r.Dir(), helpers.FilePathSeparator)
+
+	fileDataDir := r.Filename()[0 : len(r.Filename())-(len(r.Dir())+len(r.Path()))]
+	// remove trailing slash
+	fileDataDir = fileDataDir[0 : len(fileDataDir)-1]
+	// get sites data path abs
+	siteDataDir := s.PathSpec.AbsPathify(s.Language.DataDir)
+
 	// The first path element is the virtual folder (typically theme name), which is
 	// not part of the key.
 	if len(keyParts) > 1 {
@@ -977,7 +984,12 @@ func (s *Site) handleDataFile(r source.ReadableFile) error {
 			higherPrecedentMap := higherPrecedentData.(map[string]interface{})
 			for key, value := range data.(map[string]interface{}) {
 				if _, exists := higherPrecedentMap[key]; exists {
-					s.Log.WARN.Printf("Data for key '%s' in path '%s' is overridden by higher precedence data already in the data tree", key, r.Path())
+					// if the file language matches this Site instance language we want to take precedence
+					if fileDataDir == siteDataDir {
+						higherPrecedentMap[key] = value
+					} else {
+						s.Log.WARN.Printf("Data for key '%s' in path '%s' is overridden by higher precedence data already in the data tree", key, r.Path())
+					}
 				} else {
 					higherPrecedentMap[key] = value
 				}

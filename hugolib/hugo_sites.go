@@ -664,9 +664,11 @@ func (h *HugoSites) setupTranslations() {
 	}
 
 	// Pull over the collections from the master site
-	for i := 1; i < len(h.Sites); i++ {
+
+	// we don't need to do this now as we have already done it to each site.
+	/*for i := 1; i < len(h.Sites); i++ {
 		h.Sites[i].Data = h.Sites[0].Data
-	}
+	}*/
 
 	if len(h.Sites) > 1 {
 		allTranslations := pagesToTranslationsMap(allPages)

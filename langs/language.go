@@ -52,6 +52,9 @@ type Language struct {
 	// absolute directory reference. It is what we get.
 	ContentDir string
 
+	// If set per language, this tells Hugo that data files for this language exist in a specific directory
+	DataDir string
+
 	Cfg config.Provider
 
 	// These are params declared in the [params] section of the language merged with the
@@ -83,7 +86,12 @@ func NewLanguage(lang string, cfg config.Provider) *Language {
 		panic("contentDir not set")
 	}
 
-	l := &Language{Lang: lang, ContentDir: defaultContentDir, Cfg: cfg, params: params, settings: make(map[string]interface{})}
+	defaultDataDir := cfg.GetString("dataDir")
+	if defaultDataDir == "" {
+		panic("dataDir not set")
+	}
+
+	l := &Language{Lang: lang, ContentDir: defaultContentDir, DataDir: defaultDataDir, Cfg: cfg, params: params, settings: make(map[string]interface{})}
 	return l
 }
 
