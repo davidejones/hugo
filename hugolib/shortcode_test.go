@@ -1348,7 +1348,7 @@ title: "No Inner!"
 	b.Assert(err.Error(), qt.Contains, `failed to extract shortcode: shortcode "noinner" has no .Inner, yet a closing tag was provided`)
 }
 
-func TestShortCodeCodeFence(t *testing.T) {
+func TestNestedShortCodeWithCodeFence(t *testing.T) {
 	t.Parallel()
 	c := qt.New(t)
 
@@ -1366,155 +1366,114 @@ markup:
     guessSyntax: true
 `)
 
-	//cfg, fs := newTestCfg()
-	//cfg.Set("pygmentsUseClasses", true)
-	//cfg.Set("pygmentsCodefences", true)
-	//cfg.Set("markup", map[string]interface{}{
-	//	"goldmark": "blackfriday", // TODO(bep)
-	//})
-	//builder := newTestSitesBuilderFromDepsCfg(t, deps.DepsCfg{Fs: fs, Cfg: cfg})
-
-	//builder := newTestSitesBuilder(t).WithSimpleConfigFile()
-
 	builder.WithContent("page.md", `---
 title: "Hugo Rocks!"
 ---
-
-Log collection requires the Datadog Agent v6.0+. Older versions of the Agent do not include the test interface.
-
-As of Agent v6.14/v7.14, Datadog recommends the use of and enforcing **HTTPS** transport (see [agent Transport for Logs][1]). 
-If you are using the HTTPS transport for logs, please refer to the [agent proxy documentation][2] and use the same set of proxy settings as other data types.
-
-## TCP log forwarding
-
 {{< tabs >}}
-{{% tab "TCP" %}}
+{{< tab "TCP" >}}
 
-#### HAProxy configuration
-
-HAProxy should be installed on a host that has connectivity to Datadog. Use the following configuration file if you do not already have it configured.
+# This is tab markdown
 
 {{< site-region region="us" >}}
 
+# This is site region markdown
 
-`+"```conf"+`
+`+"```"+`
 # Basic configuration
-global
-log 127.0.0.1 local0
-maxconn 4096
-stats socket /tmp/haproxy
-# Some sane defaults
-defaults
-log     global
-option  dontlognull
-retries 3
-option  redispatch
 timeout client 5s
 timeout server 5s
 timeout connect 5s
 
 # This declares a view into HAProxy statistics, on port 3833
-# You do not need credentials to view this page and you can
-# turn it off once you are done with setup.
-	listen stats
-bind *:3833
 mode http
 stats enable
-stats uri /
-
-# This section is to reload DNS Records
-# Replace <DNS_SERVER_IP> and <DNS_SECONDARY_SERVER_IP> with your DNS Server IP addresses.
-# For HAProxy 1.8 and newer
-resolvers my-dns
-nameserver dns1 <DNS_SERVER_IP>:53
-nameserver dns2 <DNS_SECONDARY_SERVER_IP>:53
-resolve_retries 3
-timeout resolve 2s
-timeout retry 1s
-accepted_payload_size 8192
-hold valid 10s
-hold obsolete 60s
-
-# This declares the endpoint where your Agents connects for
-# sending Logs (e.g the value of "logs.config.logs_dd_url")
-frontend logs_frontend
-bind *:10514
-mode tcp
-option tcplog
-default_backend datadog-logs
-
-# This is the Datadog server. In effect any TCP request coming
-# to the forwarder frontends defined above are proxied to
-# Datadog's public endpoints.
-backend datadog-logs
-balance roundrobin
-mode tcp
-option tcplog
-server datadog agent-intake.logs.datadoghq.com:10516 ssl verify required ca-file /etc/ssl/certs/ca-certificates.crt check port 10516
 `+"```"+`
-
-Once the HAProxy configuration is in place, you can reload it or restart HAProxy.
-
 {{< /site-region >}}
-
-{{% /tab %}}
-{{% tab "SOCKS5" %}}
-
-To send your logs to your Datadog account with a SOCKS5 proxy server use the following settings in your test.yaml configuration file:
-
-`+"```yaml"+`
-logs_config:
-socks5_proxy_address: "<MY_SOCKS5_PROXY_URL>:<MY_SOCKS5_PROXY_PORT>"
-`+"```"+`
-
-The parameter above can also be set with the following environment variable:
-
-* test
-
-{{% /tab %}}
+{{< /tab >}}
 {{< /tabs >}}
-
-
-
-## Further Reading
-
-[1]: /agent/logs/log_transport?tab=https
-[2]: /agent/proxy/
-`).WithTemplatesAdded(
-		"layouts/shortcodes/site-region.html",
-		`{{ if  not (.Get "region") }}
-    {{ errorf "Site region error: Missing region for param 'region': %s" .Position }}
-{{ end }}
-
-{{ $region := .Get "region" }}
-
-<div class="d-none" data-region="{{ $region }}">{{- .Inner | markdownify -}}</div>`).WithTemplatesAdded(
-		"layouts/shortcodes/tabs.html",
-		`<div class='code-tabs'>
-  <ul class="nav nav-tabs d-none d-sm-flex"></ul>
-  <ul class="nav nav-tabs-mobile d-block d-sm-none">
-    <li class="nav-item dropdown">
-      <a class="nav-link dropdown-toggle title-dropdown" data-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">Dropdown</a>
-      <div class="dropdown-menu">
-      </div>
-    </li>
-  </ul>
-  <div class="tab-content">{{ .Inner }}</div>
-</div>
-`).WithTemplatesAdded(
-		"layouts/shortcodes/tab.html",
-		`<div data-lang="{{ .Get 0 | lower }}" class="tab-pane fade" role="tabpanel" title="{{ .Get 0 }}">
-  {{ .Inner }}
-</div>`).Build(BuildCfg{})
+`)
+	builder.WithTemplatesAdded("layouts/shortcodes/site-region.html", `<div>{{- .Inner | markdownify -}}</div>`)
+	builder.WithTemplatesAdded("layouts/shortcodes/tabs.html", `<div>{{ .Inner }}</div>`)
+	builder.WithTemplatesAdded("layouts/shortcodes/tab.html", `<div>{{ .Inner | markdownify }}</div>`)
+	builder.Build(BuildCfg{})
 
 	s := builder.H.Sites[0]
 	c.Assert(len(s.RegularPages()), qt.Equals, 1)
 
-	fmt.Printf(builder.FileContent("public/page/index.html"))
+	builder.AssertFileContent("public/page/index.html", `<div><div><h1 id="this-is-site-region-markdown">This is site region markdown</h1>
+<div class="highlight"><pre class="chroma"><code class="language-fallback" data-lang="fallback"># Basic configuration
+timeout client 5s
+timeout server 5s
+timeout connect 5s
 
-	builder.AssertFileContent("public/page/index.html",
-		"types positional: - 0: true (bool) - 1: false (bool) - 2: 33 (int) - 3: 3.14 (float64)",
-		"types named: - b1: true (bool) - b2: false (bool) - f1: 3.14 (float64) - i1: 33 (int) Get: true (bool) ",
-		"types string: - 0: true (string) - 1: trues (string) - 2: 33 (string) - 3: 3.14 (string) ",
-	)
+# This declares a view into HAProxy statistics, on port 3833
+mode http
+stats enable
+</code></pre></div></div></p>
+</div>
+</div>`)
+}
+
+func TestNestedShortCodeWithCodeFence2(t *testing.T) {
+	t.Parallel()
+	c := qt.New(t)
+
+	builder := newTestSitesBuilder(t)
+	builder.WithConfigFile("yaml",
+		`
+pygmentsuseclasses: true
+pygmentsCodeFences: true
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+  highlight:
+    guessSyntax: true
+`)
+
+	builder.WithContent("page.md", `---
+title: "Hugo Rocks!"
+---
+
+{{< first >}}
+
+# This is first markdown
+
+{{< second >}}
+
+# This is second markdown
+
+`+"```"+`
+# Basic configuration
+timeout client 5s
+timeout server 5s
+timeout connect 5s
+
+# This declares a view into HAProxy statistics, on port 3833
+mode http
+stats enable
+`+"```"+`
+{{< /second >}}
+{{< /first >}}
+`)
+	builder.WithTemplatesAdded("layouts/shortcodes/first.html", `<div>{{- .Inner | markdownify -}}</div>`)
+	builder.WithTemplatesAdded("layouts/shortcodes/second.html", `<div>{{ .Inner | markdownify }}</div>`)
+	builder.Build(BuildCfg{})
+
+	s := builder.H.Sites[0]
+	c.Assert(len(s.RegularPages()), qt.Equals, 1)
+
+	builder.AssertFileContent("public/page/index.html", `<div><h1 id="this-is-first-markdown">This is first markdown</h1>
+<div><h1 id="this-is-second-markdown">This is second markdown</h1>
+<div class="highlight"><pre class="chroma"><code class="language-fallback" data-lang="fallback"># Basic configuration
+timeout client 5s
+timeout server 5s
+timeout connect 5s
+
+# This declares a view into HAProxy statistics, on port 3833
+mode http
+stats enable
+</code></pre></div></div></p>
+</div>`)
 }
