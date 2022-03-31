@@ -17,7 +17,7 @@ require (
 	github.com/cli/safeexec v1.0.0
 	github.com/disintegration/gift v1.2.1
 	github.com/dustin/go-humanize v1.0.0
-	github.com/evanw/esbuild v0.14.11
+	github.com/evanw/esbuild v0.14.29
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/frankban/quicktest v1.14.0
 	github.com/fsnotify/fsnotify v1.5.1
@@ -63,7 +63,7 @@ require (
 	golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/text v0.3.7
-	golang.org/x/tools v0.1.9 // indirect
+	golang.org/x/tools v0.1.9
 	google.golang.org/api v0.63.0
 	gopkg.in/yaml.v2 v2.4.0
 )
