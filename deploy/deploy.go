@@ -21,6 +21,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -72,6 +73,8 @@ type Deployer struct {
 type deploySummary struct {
 	NumLocal, NumRemote, NumUploads, NumDeletes int
 }
+
+var metaMD5Hash = "Md5chksum" // the meta key to store md5hash in
 
 // New constructs a new *Deployer.
 func New(cfg config.Provider, localFs afero.Fs) (*Deployer, error) {
@@ -314,6 +317,7 @@ func doSingleUpload(ctx context.Context, bucket *blob.Bucket, upload *fileToUplo
 		CacheControl:    upload.Local.CacheControl(),
 		ContentEncoding: upload.Local.ContentEncoding(),
 		ContentType:     upload.Local.ContentType(),
+		Metadata:        map[string]string{strings.ToLower(metaMD5Hash): hex.EncodeToString(upload.Local.MD5())},
 	}
 	w, err := bucket.NewWriter(ctx, upload.Local.SlashPath, opts)
 	if err != nil {
@@ -545,6 +549,23 @@ func walkLocal(fs afero.Fs, matchers []*matcher, include, exclude glob.Glob, med
 	return retval, nil
 }
 
+// remoteAttrSum retrieves a metadata stored hash if it exists
+func remoteAttrSum(ctx context.Context, b *blob.Bucket, key string) []byte {
+	attr, err := b.Attributes(ctx, key)
+	if err != nil {
+		return nil
+	}
+	md5String, exists := attr.Metadata[strings.ToLower(metaMD5Hash)]
+	if exists {
+		MD5, err := hex.DecodeString(md5String)
+		if err != nil {
+			return nil
+		}
+		return MD5
+	}
+	return nil
+}
+
 // walkRemote walks the target bucket and returns a flat list.
 func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.Glob) (map[string]*blob.ListObject, error) {
 	retval := map[string]*blob.ListObject{}
@@ -566,7 +587,7 @@ func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.
 			jww.INFO.Printf("  remote dropping %q due to exclude\n", obj.Key)
 			continue
 		}
-		// If the remote didn't give us an MD5, compute one.
+		// If the remote didn't give us an MD5, use remote attributes MD5, if that doesn't exist compute one.
 		// This can happen for some providers (e.g., fileblob, which uses the
 		// local filesystem), but not for the most common Cloud providers
 		// (S3, GCS, Azure). Although, it can happen for S3 if the blob was uploaded
@@ -574,13 +595,21 @@ func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.
 		// Although it's unfortunate to have to read the file, it's likely better
 		// than assuming a delta and re-uploading it.
 		if len(obj.MD5) == 0 {
-			r, err := bucket.NewReader(ctx, obj.Key, nil)
-			if err == nil {
-				h := md5.New()
-				if _, err := io.Copy(h, r); err == nil {
-					obj.MD5 = h.Sum(nil)
+			attrMD5 := remoteAttrSum(ctx, bucket, obj.Key)
+			jww.INFO.Printf("  MD5 invalid %q\n", obj.Key)
+			if len(attrMD5) == 0 {
+				jww.INFO.Printf("  no attrMD5 found %q\n", obj.Key)
+				r, err := bucket.NewReader(ctx, obj.Key, nil)
+				if err == nil {
+					h := md5.New()
+					if _, err := io.Copy(h, r); err == nil {
+						obj.MD5 = h.Sum(nil)
+					}
+					r.Close()
 				}
-				r.Close()
+			} else {
+				jww.INFO.Printf("  attrMD5 found! %q\n", obj.Key)
+				obj.MD5 = attrMD5
 			}
 		}
 		retval[obj.Key] = obj
