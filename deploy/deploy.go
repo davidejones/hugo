@@ -18,6 +18,7 @@ package deploy
 
 import (
 	"bytes"
+	"cloud.google.com/go/storage"
 	"compress/gzip"
 	"context"
 	"crypto/md5"
@@ -549,27 +550,11 @@ func walkLocal(fs afero.Fs, matchers []*matcher, include, exclude glob.Glob, med
 	return retval, nil
 }
 
-// remoteAttrSum retrieves a metadata stored hash if it exists
-func remoteAttrSum(ctx context.Context, b *blob.Bucket, key string) []byte {
-	attr, err := b.Attributes(ctx, key)
-	if err != nil {
-		return nil
-	}
-	md5String, exists := attr.Metadata[strings.ToLower(metaMD5Hash)]
-	if exists {
-		MD5, err := hex.DecodeString(md5String)
-		if err != nil {
-			return nil
-		}
-		return MD5
-	}
-	return nil
-}
-
 // walkRemote walks the target bucket and returns a flat list.
 func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.Glob) (map[string]*blob.ListObject, error) {
 	retval := map[string]*blob.ListObject{}
 	iter := bucket.List(nil)
+
 	for {
 		obj, err := iter.Next(ctx)
 		if err == io.EOF {
@@ -595,8 +580,15 @@ func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.
 		// Although it's unfortunate to have to read the file, it's likely better
 		// than assuming a delta and re-uploading it.
 		if len(obj.MD5) == 0 {
-			attrMD5 := remoteAttrSum(ctx, bucket, obj.Key)
 			jww.INFO.Printf("  MD5 invalid %q\n", obj.Key)
+			var attrMD5 []byte
+			attrs, err := bucket.Attributes(ctx, obj.Key)
+			if err == nil {
+				md5String, exists := attrs.Metadata[strings.ToLower(metaMD5Hash)]
+				if exists {
+					attrMD5, err = hex.DecodeString(md5String)
+				}
+			}
 			if len(attrMD5) == 0 {
 				jww.INFO.Printf("  no attrMD5 found %q\n", obj.Key)
 				r, err := bucket.NewReader(ctx, obj.Key, nil)
@@ -606,6 +598,75 @@ func walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.
 						obj.MD5 = h.Sum(nil)
 					}
 					r.Close()
+
+					jww.INFO.Printf("  generated MD5 %q\n", obj.MD5)
+
+					// update md5, retain existing data
+					jww.INFO.Printf("  updating md5 %q\n", obj.Key)
+
+					// copy metadata and add our md5
+					md := map[string]string{}
+					if len(attrs.Metadata) > 0 {
+						md = make(map[string]string, len(attrs.Metadata))
+						for k, v := range attrs.Metadata {
+							md[strings.ToLower(k)] = v
+						}
+					}
+					md[strings.ToLower(metaMD5Hash)] = hex.EncodeToString(obj.MD5)
+
+					/*
+						beforeWrite := func(as func(interface{}) bool) error {
+							var sw *storage.Writer
+							if as(&sw) {
+								jww.INFO.Printf("  beforeWrite ETAG %q\n", sw.Etag)
+							}
+							return nil
+						}
+
+					*/
+
+					// Access storage.ObjectAttrs via oa here.
+					var oa storage.ObjectAttrs
+					if obj.As(&oa) {
+						jww.INFO.Printf("  ETAG %q\n", oa.Etag)
+					}
+
+					/*beforeCopy := func(asFunc func(interface{}) bool) error {
+						jww.INFO.Printf("  COPYBEFORE %q\n", obj.Key)
+						// CopyOptions.BeforeCopy: *(V1) s3.CopyObjectInput; (V2) s3v2.CopyObjectInput
+						return nil
+					}
+					// copy may change owner i read somewhere
+					bucket.Copy(ctx, "vid2.mp4", obj.Key, &blob.CopyOptions{BeforeCopy: beforeCopy})*/
+
+					/*_, err := awsSession.svc.CopyObject(&s3.CopyObjectInput{
+						Bucket:            aws.String(Bucket),
+						CopySource:        aws.String(source),
+						Key:               aws.String(destkey),
+						Metadata:          metadata,
+						MetadataDirective: aws.String("REPLACE"),
+						ContentType:       aws.String("application/octet-stream"),
+					})*/
+
+					opts := &blob.WriterOptions{
+						CacheControl:       attrs.CacheControl,
+						ContentDisposition: attrs.ContentDisposition,
+						ContentEncoding:    attrs.ContentEncoding,
+						ContentLanguage:    attrs.ContentLanguage,
+						ContentType:        attrs.ContentType,
+						//ContentMD5:         obj.MD5,
+						Metadata: md,
+						//Metadata: map[string]string{
+						//	strings.ToLower(metaMD5Hash): hex.EncodeToString(obj.MD5),
+						//},
+						//BeforeWrite: beforeWrite,
+					}
+					w, err := bucket.NewWriter(ctx, obj.Key, opts)
+					if err != nil {
+						jww.INFO.Printf("  err writing %q\n", obj.Key)
+					}
+					w.Close()
+
 				}
 			} else {
 				jww.INFO.Printf("  attrMD5 found! %q\n", obj.Key)
