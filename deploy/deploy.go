@@ -314,7 +314,7 @@ func (d *Deployer) doSingleUpload(ctx context.Context, bucket *blob.Bucket, uplo
 		CacheControl:    upload.Local.CacheControl(),
 		ContentEncoding: upload.Local.ContentEncoding(),
 		ContentType:     upload.Local.ContentType(),
-		Metadata:        map[string]string{metaMD5Hash: hex.EncodeToString(upload.Local.MD5())},
+		Metadata:        upload.Local.Metadata(),
 	}
 	w, err := bucket.NewWriter(ctx, upload.Local.SlashPath, opts)
 	if err != nil {
@@ -346,6 +346,8 @@ type localFile struct {
 	// be the same as the local file size if the content will be
 	// gzipped before upload.
 	UploadSize int64
+	// AliasPath is the path to the target of the redirect
+	AliasPath string
 
 	fs         afero.Fs
 	matcher    *deployconfig.Matcher
@@ -434,6 +436,9 @@ func (lf *localFile) ContentEncoding() string {
 // Cloud will automatically try to infer a Content-Type based on the file
 // content.
 func (lf *localFile) ContentType() string {
+	if lf.AliasPath != "" {
+		return "binary/octet-stream"
+	}
 	if lf.matcher != nil && lf.matcher.ContentType != "" {
 		return lf.matcher.ContentType
 	}
@@ -444,6 +449,18 @@ func (lf *localFile) ContentType() string {
 	}
 
 	return mime.TypeByExtension(ext)
+}
+
+// Metadata returns the metadata entries to use for lf.
+func (lf *localFile) Metadata() map[string]string {
+	meta := map[string]string{
+		"metaMD5Hash": hex.EncodeToString(lf.MD5()),
+	}
+	if lf.AliasPath != "" {
+		meta["x-amz-website-redirect-location"] = lf.AliasPath
+		delete(meta, "metaMD5Hash")
+	}
+	return meta
 }
 
 // Force returns true if the file should be forced to re-upload based on the
