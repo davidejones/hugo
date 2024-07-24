@@ -445,7 +445,7 @@ func TestLocalFile(t *testing.T) {
 				}
 				mediaTypes = mt.Config
 			}
-			lf, err := newLocalFile(fs, tc.Path, filepath.ToSlash(tc.Path), tc.Matcher, mediaTypes)
+			lf, err := newLocalFile(fs, tc.Path, filepath.ToSlash(tc.Path), "", tc.Matcher, mediaTypes)
 			if err != nil {
 				t.Fatal(err)
 			}

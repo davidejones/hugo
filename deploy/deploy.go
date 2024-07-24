@@ -357,7 +357,7 @@ type localFile struct {
 }
 
 // newLocalFile initializes a *localFile.
-func newLocalFile(fs afero.Fs, nativePath, slashpath string, m *deployconfig.Matcher, mt media.Types) (*localFile, error) {
+func newLocalFile(fs afero.Fs, nativePath, slashpath string, aliaspath string, m *deployconfig.Matcher, mt media.Types) (*localFile, error) {
 	f, err := fs.Open(nativePath)
 	if err != nil {
 		return nil, err
@@ -366,6 +366,7 @@ func newLocalFile(fs afero.Fs, nativePath, slashpath string, m *deployconfig.Mat
 	lf := &localFile{
 		NativePath: nativePath,
 		SlashPath:  slashpath,
+		AliasPath:  aliaspath,
 		fs:         fs,
 		matcher:    m,
 		mediaTypes: mt,
@@ -555,7 +556,22 @@ func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, incl
 		if mappath != nil {
 			slashpath = mappath(slashpath)
 		}
-		lf, err := newLocalFile(fs, path, slashpath, m, mediaTypes)
+
+		// extract alias target path
+		aliaspath := ""
+		if _, err := os.Stat(path); err == nil {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Print(err)
+			}
+			var re = regexp.MustCompile(`(?mi)content=["']0;\s*url=(.*?)["']\s*\/?>`)
+			for i, match := range re.FindAllString(string(b), -1) {
+				fmt.Println(match, "found at index", i)
+			}
+			aliaspath = "/foo/bar/baz"
+		}
+
+		lf, err := newLocalFile(fs, path, slashpath, aliaspath, m, mediaTypes)
 		if err != nil {
 			return err
 		}
@@ -707,6 +723,12 @@ func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[s
 				upload = true
 				reason = reasonMD5Missing
 			} else if !bytes.Equal(lf.MD5(), remoteFile.MD5) {
+				upload = true
+				reason = reasonMD5Differs
+			} else if bytes.Equal([]byte("d41d8cd98f00b204e9800998ecf8427"), remoteFile.MD5) {
+				// The md5 for a zero byte file is always d41d8..
+				// If the remote md5 is this value it's an alias and we should treat as diff
+				// because we don't diff metadata values
 				upload = true
 				reason = reasonMD5Differs
 			}
