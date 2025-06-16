@@ -164,7 +164,7 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		return nil
 	}
 	if !d.quiet {
-		d.logger.Println(summarizeChanges(uploads, deletes))
+		d.logger.Println(summarizeChanges(uploads, deletes, d.cfg.MaxDeletes))
 	}
 
 	// Ask for confirmation before proceeding.
@@ -297,12 +297,18 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 }
 
 // summarizeChanges creates a text description of the proposed changes.
-func summarizeChanges(uploads []*fileToUpload, deletes []string) string {
+func summarizeChanges(uploads []*fileToUpload, deletes []string, maxDeletes int) string {
 	uploadSize := int64(0)
 	for _, u := range uploads {
 		uploadSize += u.Local.UploadSize
 	}
-	return fmt.Sprintf("Identified %d file(s) to upload, totaling %s, and %d file(s) to delete.", len(uploads), humanize.Bytes(uint64(uploadSize)), len(deletes))
+	var deleteMsg string
+	if maxDeletes == 0 {
+		deleteMsg = "skipping file deletes due to --maxDeletes being set to 0"
+	} else {
+		deleteMsg = fmt.Sprintf("%d file(s) to delete", len(deletes))
+	}
+	return fmt.Sprintf("Identified %d file(s) to upload, totaling %s, and %s.", len(uploads), humanize.Bytes(uint64(uploadSize)), deleteMsg)
 }
 
 // doSingleUpload executes a single file upload.
