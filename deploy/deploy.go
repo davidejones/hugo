@@ -651,60 +651,80 @@ func (u *fileToUpload) String() string {
 // slice of paths for files to delete.
 func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[string]*blob.ListObject, force bool) ([]*fileToUpload, []string) {
 	var uploads []*fileToUpload
+
+	// If MaxDeletes is 0, we don't need to track files for deletion
+	trackDeletes := d.cfg.MaxDeletes != 0
+
+	// If we're not tracking deletes, we can skip creating the found map
+	var found map[string]bool
+	if trackDeletes {
+		found = make(map[string]bool, len(localFiles))
+	}
+
+	found := map[string]bool{}
+	for path, lf := range localFiles {
+		upload := false
+		reason := reasonUnknown
+
+		if remoteFile, ok := remoteFiles[path]; ok {
+			// The file exists in remote. Let's see if we need to upload it anyway.
+
+			// TODO: We don't register a diff if the metadata (e.g., Content-Type
+			// header) has changed. This would be difficult/expensive to detect; some
+			// providers return metadata along with their "List" result, but others
+			// (notably AWS S3) do not, so gocloud.dev's blob.Bucket doesn't expose
+			// it in the list result. It would require a separate request per blob
+			// to fetch. At least for now, we work around this by documenting it and
+			// providing a "force" flag (to re-upload everything) and a "force" bool
+			// per matcher (to re-upload all files in a matcher whose headers may have
+			// changed).
+			// Idea: extract a sample set of 1 file per extension + 1 file per matcher
+			// and check those files?
+			if force {
+				upload = true
+				reason = reasonForce
+			} else if lf.Force() {
+				upload = true
+				reason = reasonForce
+			} else if lf.UploadSize != remoteFile.Size {
+				upload = true
+				reason = reasonSize
+			} else if len(remoteFile.MD5) == 0 {
+				// This shouldn't happen unless the remote didn't give us an MD5 hash
+				// from List, AND we failed to compute one by reading the remote file.
+				// Default to considering the files different.
+				upload = true
+				reason = reasonMD5Missing
+			} else if !bytes.Equal(lf.MD5(), remoteFile.MD5) {
+				upload = true
+				reason = reasonMD5Differs
+			}
+			if trackDeletes {
+				found[path] = true
+			}
+		} else {
+			// The file doesn't exist in remote.
+			upload = true
+			reason = reasonNotFound
+		}
+		if upload {
+			d.logger.Debugf("%s needs to be uploaded: %v\n", path, reason)
+			uploads = append(uploads, &fileToUpload{lf, reason})
+		} else {
+			d.logger.Debugf("%s exists at target and does not need to be uploaded", path)
+		}
+	}
+
 	var deletes []string
-	var mu sync.Mutex
-
-	// Process in chunks for better memory management
-	const chunkSize = 1000
-	paths := make([]string, 0, len(localFiles))
-	for path := range localFiles {
-		paths = append(paths, path)
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < len(paths); i += chunkSize {
-		end := i + chunkSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-
-		wg.Add(1)
-		go func(chunk []string) {
-			defer wg.Done()
-			localUploads := make([]*fileToUpload, 0)
-
-			for _, path := range chunk {
-				lf := localFiles[path]
-				if remoteFile, ok := remoteFiles[path]; ok {
-					if shouldUpload(lf, remoteFile, force) {
-						localUploads = append(localUploads, &fileToUpload{lf, determineReason(lf, remoteFile, force)})
-					}
-				} else {
-					localUploads = append(localUploads, &fileToUpload{lf, reasonNotFound})
-				}
+	if trackDeletes {
+		// Only calculate deletes if MaxDeletes is not 0
+		deletes = make([]string, 0, len(remoteFiles)-len(found))
+		// Remote files that weren't found locally should be deleted.
+		for path := range remoteFiles {
+			if !found[path] {
+				deletes = append(deletes, path)
 			}
-
-			if len(localUploads) > 0 {
-				mu.Lock()
-				uploads = append(uploads, localUploads...)
-				mu.Unlock()
-			}
-		}(paths[i:end])
-	}
-	wg.Wait()
-
-	// Process deletes in parallel
-	deleteChan := make(chan string, len(remoteFiles))
-	for path := range remoteFiles {
-		if _, ok := localFiles[path]; !ok {
-			deleteChan <- path
 		}
-	}
-	close(deleteChan)
-
-	deletes = make([]string, 0, len(deleteChan))
-	for path := range deleteChan {
-		deletes = append(deletes, path)
 	}
 
 	return uploads, deletes
