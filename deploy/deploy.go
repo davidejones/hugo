@@ -661,7 +661,6 @@ func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[s
 		found = make(map[string]bool, len(localFiles))
 	}
 
-	found := map[string]bool{}
 	for path, lf := range localFiles {
 		upload := false
 		reason := reasonUnknown
