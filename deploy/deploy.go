@@ -138,18 +138,47 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 			mappath = stripIndexHTML
 		}
 	}
-	local, err := d.walkLocal(d.localFs, d.cfg.Matchers, include, exclude, d.mediaTypes, mappath)
-	if err != nil {
-		return err
+
+	// Create channels for results and errors
+	type localResult struct {
+		files map[string]*localFile
+		err   error
 	}
+	type remoteResult struct {
+		files map[string]*blob.ListObject
+		err   error
+	}
+
+	localChan := make(chan localResult, 1)
+	remoteChan := make(chan remoteResult, 1)
+
+	// Load local files in goroutine
+	go func() {
+		files, err := d.walkLocal(d.localFs, d.cfg.Matchers, include, exclude, d.mediaTypes, mappath)
+		localChan <- localResult{files, err}
+	}()
+
+	// Load remote files from the target in goroutine
+	go func() {
+		files, err := d.walkRemote(ctx, bucket, include, exclude)
+		remoteChan <- remoteResult{files, err}
+	}()
+
+	// Wait for both operations to complete
+	localRes := <-localChan
+	if localRes.err != nil {
+		return localRes.err
+	}
+	local := localRes.files
+
+	remoteRes := <-remoteChan
+	if remoteRes.err != nil {
+		return remoteRes.err
+	}
+	remote := remoteRes.files
+
 	d.logger.Infof("Found %d local files.\n", len(local))
 	d.summary.NumLocal = len(local)
-
-	// Load remote files from the target.
-	remote, err := d.walkRemote(ctx, bucket, include, exclude)
-	if err != nil {
-		return err
-	}
 	d.logger.Infof("Found %d remote files.\n", len(remote))
 	d.summary.NumRemote = len(remote)
 
