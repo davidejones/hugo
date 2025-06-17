@@ -1,5 +1,7 @@
 module github.com/gohugoio/hugo
 
+replace github.com/gohugoio/hugo => ./
+
 require (
 	github.com/BurntSushi/locker v0.0.0-20171006230638-a6e239ea1c69
 	github.com/alecthomas/chroma/v2 v2.18.0
