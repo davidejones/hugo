@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gobwas/glob"
 	"github.com/gohugoio/hugo/common/loggers"
@@ -116,9 +117,14 @@ func (d *Deployer) openBucket(ctx context.Context) (*blob.Bucket, error) {
 
 // Deploy deploys the site to a target.
 func (d *Deployer) Deploy(ctx context.Context) error {
+	deployerStartTime := time.Now()
 	if d.logger == nil {
 		d.logger = loggers.NewDefault()
 	}
+
+	d.logger.Warnf("GOMAXPROCS %d \n", runtime.GOMAXPROCS(0))
+	d.logger.Warnf("NumCPU %d \n", runtime.NumCPU())
+	d.logger.Warnf("Workers %d \n", d.cfg.Workers)
 
 	bucket, err := d.openBucket(ctx)
 	if err != nil {
@@ -189,6 +195,7 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 	if len(uploads)+len(deletes) == 0 {
 		if !d.quiet {
 			d.logger.Println("No changes required.")
+			d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
 		}
 		return nil
 	}
@@ -322,6 +329,7 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		}
 		d.logger.Println("Success!")
 	}
+	d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
 	return nil
 }
 
@@ -563,6 +571,7 @@ func knownHiddenDirectory(name string) bool {
 // walkLocal walks the source directory and returns a flat list of files,
 // using localFile.SlashPath as the map keys.
 func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, include, exclude glob.Glob, mediaTypes media.Types, mappath func(string) string) (map[string]*localFile, error) {
+	startTime := time.Now()
 	retval := sync.Map{}
 
 	// Pre-compile matcher paths for better performance
@@ -678,7 +687,7 @@ func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, incl
 		result[key.(string)] = value.(*localFile)
 		return true
 	})
-
+	d.logger.Warnf("Operation walkLocal took %v", time.Since(startTime))
 	return result, nil
 }
 
@@ -693,6 +702,7 @@ func stripIndexHTML(slashpath string) string {
 
 // walkRemote walks the target bucket and returns a flat list.
 func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.Glob) (map[string]*blob.ListObject, error) {
+	startTime := time.Now()
 	retval := map[string]*blob.ListObject{}
 	iter := bucket.List(nil)
 	for {
@@ -729,6 +739,7 @@ func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include,
 				}
 			}
 			if len(attrMD5) == 0 {
+				md5StartTime := time.Now()
 				r, err := bucket.NewReader(ctx, obj.Key, nil)
 				if err == nil {
 					h := md5.New()
@@ -737,12 +748,14 @@ func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include,
 					}
 					r.Close()
 				}
+				d.logger.Warnf("attrMD5 took %v for %s", time.Since(md5StartTime), obj.Key)
 			} else {
 				obj.MD5 = attrMD5
 			}
 		}
 		retval[obj.Key] = obj
 	}
+	d.logger.Warnf("Operation walkRemote took %v", time.Since(startTime))
 	return retval, nil
 }
 
@@ -783,6 +796,7 @@ func (u *fileToUpload) String() string {
 // applied to the remote target. It returns a slice of *fileToUpload and a
 // slice of paths for files to delete.
 func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[string]*blob.ListObject, force bool) ([]*fileToUpload, []string) {
+	startTime := time.Now()
 	var uploads []*fileToUpload
 
 	// If MaxDeletes is 0, we don't need to track files for deletion
@@ -858,48 +872,8 @@ func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[s
 			}
 		}
 	}
-
+	d.logger.Warnf("Operation findDiffs took %v", time.Since(startTime))
 	return uploads, deletes
-}
-
-// shouldUpload determines if a file needs to be uploaded based on its local and remote state.
-func shouldUpload(lf *localFile, remoteFile *blob.ListObject, force bool) bool {
-	if force {
-		return true
-	}
-	if lf.Force() {
-		return true
-	}
-	if lf.UploadSize != remoteFile.Size {
-		return true
-	}
-	if len(remoteFile.MD5) == 0 {
-		return true
-	}
-	if !bytes.Equal(lf.MD5(), remoteFile.MD5) {
-		return true
-	}
-	return false
-}
-
-// determineReason determines the reason for uploading a file.
-func determineReason(lf *localFile, remoteFile *blob.ListObject, force bool) uploadReason {
-	if force {
-		return reasonForce
-	}
-	if lf.Force() {
-		return reasonForce
-	}
-	if lf.UploadSize != remoteFile.Size {
-		return reasonSize
-	}
-	if len(remoteFile.MD5) == 0 {
-		return reasonMD5Missing
-	}
-	if !bytes.Equal(lf.MD5(), remoteFile.MD5) {
-		return reasonMD5Differs
-	}
-	return reasonUnknown
 }
 
 // applyOrdering returns an ordered slice of slices of uploads.
