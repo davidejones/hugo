@@ -340,33 +340,55 @@ func summarizeChanges(uploads []*fileToUpload, deletes []string, maxDeletes int)
 	return fmt.Sprintf("Identified %d file(s) to upload, totaling %s, and %s.", len(uploads), humanize.Bytes(uint64(uploadSize)), deleteMsg)
 }
 
-func maxConcurrency(fileSize int64) int {
+func getProviderFromURL(targetURL string) string {
 	switch {
-	case fileSize > 1<<30: // > 1GB
-		return 16
-	case fileSize > 1<<28: // > 256MB
-		return 10
-	case fileSize > 1<<26: // > 64MB
-		return 8
-	case fileSize > 1<<24: // > 16MB
-		return 4
+	case strings.HasPrefix(targetURL, "gs://"):
+		return "gs"
+	case strings.HasPrefix(targetURL, "s3://"):
+		return "s3"
+	case strings.HasPrefix(targetURL, "azblob://"):
+		return "azure"
+	case strings.HasPrefix(targetURL, "file://"):
+		return "file"
 	default:
-		return 2
+		return "unknown"
+	}
+}
+
+// MaxConcurrency is not set (or set to 0), gocloud.dev uses a default value of 1, meaning no concurrent uploads.
+// AWS S3's multipart upload supports up to 10,000 parts per upload, but a reasonable maximum concurrency
+// rarely needs to exceed 16, even for very large files.
+func getOptimalConcurrency(provider string, fileSize int64) int {
+	switch provider {
+	case "s3":
+		switch {
+		case fileSize > 1<<30: // > 1GB
+			return 16
+		case fileSize > 1<<28: // > 256MB
+			return 10
+		case fileSize > 1<<26: // > 64MB
+			return 8
+		case fileSize > 1<<24: // > 16MB
+			return 4
+		default:
+			return 2
+		}
+	default:
+		return 0 // For now let gcloud.dev use reasonable defaults for other providers
 	}
 }
 
 // doSingleUpload executes a single file upload.
 func (d *Deployer) doSingleUpload(ctx context.Context, bucket *blob.Bucket, upload *fileToUpload) error {
 	d.logger.Infof("Uploading %v...\n", upload)
+	provider := getProviderFromURL(d.target.URL)
+
 	opts := &blob.WriterOptions{
 		CacheControl:    upload.Local.CacheControl(),
 		ContentEncoding: upload.Local.ContentEncoding(),
 		ContentType:     upload.Local.ContentType(),
 		Metadata:        map[string]string{metaMD5Hash: hex.EncodeToString(upload.Local.MD5())},
-		// MaxConcurrency is not set (or set to 0), gocloud.dev uses a default value of 1, meaning no concurrent uploads.
-		// AWS S3's multipart upload supports up to 10,000 parts per upload, but a reasonable maximum concurrency
-		// rarely needs to exceed 16, even for very large files.
-		MaxConcurrency: maxConcurrency(upload.Local.UploadSize),
+		MaxConcurrency:  getOptimalConcurrency(provider, upload.Local.UploadSize),
 	}
 	w, err := bucket.NewWriter(ctx, upload.Local.SlashPath, opts)
 	if err != nil {
