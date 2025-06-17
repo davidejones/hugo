@@ -123,9 +123,15 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		d.logger = loggers.NewDefault()
 	}
 
+	d.logger.Infof("(logger info) CUSTOM DEPLOYER!\n")
+	d.logger.Warnf("(logger warn) CUSTOM DEPLOYER!\n")
+	d.logger.Printf("(logger printf) CUSTOM DEPLOYER!\n")
+	fmt.Printf("(fmt printf) CUSTOM DEPLOYER!\n")
+
 	d.logger.Warnf("GOMAXPROCS %d \n", runtime.GOMAXPROCS(0))
 	d.logger.Warnf("NumCPU %d \n", runtime.NumCPU())
 	d.logger.Warnf("Workers %d \n", d.cfg.Workers)
+	d.logger.Printf("GOMAXPROCS %d, NumCPU %d, Workers %d\n", runtime.GOMAXPROCS(0), runtime.NumCPU(), d.cfg.Workers)
 
 	bucket, err := d.openBucket(ctx)
 	if err != nil {
@@ -197,6 +203,7 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		if !d.quiet {
 			d.logger.Println("No changes required.")
 			d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
+			d.logger.Printf("Operation Deploy took %v\n", time.Since(deployerStartTime))
 		}
 		return nil
 	}
@@ -331,6 +338,7 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		d.logger.Println("Success!")
 	}
 	d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
+	d.logger.Printf("Operation Deploy took %v\n", time.Since(deployerStartTime))
 	return nil
 }
 
@@ -689,6 +697,7 @@ func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, incl
 		return true
 	})
 	d.logger.Warnf("Operation walkLocal took %v", time.Since(startTime))
+	d.logger.Printf("Operation walkLocal took %v\n", time.Since(startTime))
 	return result, nil
 }
 
@@ -757,6 +766,7 @@ func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include,
 		retval[obj.Key] = obj
 	}
 	d.logger.Warnf("Operation walkRemote took %v", time.Since(startTime))
+	d.logger.Printf("Operation walkRemote took %v\n", time.Since(startTime))
 	return retval, nil
 }
 
