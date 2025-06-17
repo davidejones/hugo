@@ -355,6 +355,7 @@ func (d *Deployer) doSingleUpload(ctx context.Context, bucket *blob.Bucket, uplo
 	}
 	r, err := upload.Local.Reader()
 	if err != nil {
+		w.Close()
 		return err
 	}
 	defer r.Close()
