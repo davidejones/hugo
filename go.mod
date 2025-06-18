@@ -1,6 +1,4 @@
-module github.com/gohugoio/hugo
-
-replace github.com/gohugoio/hugo => ./
+module github.com/davidejones/hugo
 
 require (
 	github.com/BurntSushi/locker v0.0.0-20171006230638-a6e239ea1c69
@@ -127,6 +125,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/gohugoio/hugo v0.147.8 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
@@ -177,3 +176,7 @@ require (
 )
 
 go 1.23.0
+
+//replace github.com/davidejones/hugo v0.0.0-local => .
+//replace github.com/gohugoio/hugo v0.0.0-local => github.com/davidejones/hugo v0.0.0-local
+replace github.com/gohugoio/hugo v0.147.8 => ./
