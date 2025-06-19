@@ -596,7 +596,7 @@ func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, incl
 	}
 
 	// Create a worker pool
-	workerCount := runtime.NumCPU()
+	workerCount := d.cfg.Workers
 	jobs := make(chan string, workerCount)
 	errs := make(chan error, workerCount)
 	var wg sync.WaitGroup
@@ -713,61 +713,100 @@ func stripIndexHTML(slashpath string) string {
 // walkRemote walks the target bucket and returns a flat list.
 func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.Glob) (map[string]*blob.ListObject, error) {
 	startTime := time.Now()
-	retval := map[string]*blob.ListObject{}
-	iter := bucket.List(nil)
-	for {
-		obj, err := iter.Next(ctx)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		// Check include/exclude matchers.
-		if include != nil && !include.Match(obj.Key) {
-			d.logger.Infof("  remote dropping %q due to include\n", obj.Key)
-			continue
-		}
-		if exclude != nil && exclude.Match(obj.Key) {
-			d.logger.Infof("  remote dropping %q due to exclude\n", obj.Key)
-			continue
-		}
-		// If the remote didn't give us an MD5, use remote attributes MD5, if that doesn't exist compute one.
-		// This can happen for some providers (e.g., fileblob, which uses the
-		// local filesystem), but not for the most common Cloud providers
-		// (S3, GCS, Azure). Although, it can happen for S3 if the blob was uploaded
-		// via a multi-part upload.
-		// Although it's unfortunate to have to read the file, it's likely better
-		// than assuming a delta and re-uploading it.
-		if len(obj.MD5) == 0 {
-			var attrMD5 []byte
-			attrs, err := bucket.Attributes(ctx, obj.Key)
-			if err == nil {
-				md5String, exists := attrs.Metadata[metaMD5Hash]
-				if exists {
-					attrMD5, _ = hex.DecodeString(md5String)
-				}
+
+	// Create a concurrent map to store results
+	retval := sync.Map{}
+
+	// Create channels for workers
+	workerCount := d.cfg.Workers
+	objChan := make(chan *blob.ListObject, workerCount)
+	errs := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	// Start the listing goroutine
+	go func() {
+		iter := bucket.List(nil)
+		for {
+			obj, err := iter.Next(ctx)
+			if err == io.EOF {
+				close(objChan)
+				return
 			}
-			if len(attrMD5) == 0 {
-				md5StartTime := time.Now()
-				r, err := bucket.NewReader(ctx, obj.Key, nil)
-				if err == nil {
-					h := md5.New()
-					if _, err := io.Copy(h, r); err == nil {
-						obj.MD5 = h.Sum(nil)
+			if err != nil {
+				errs <- err
+				close(objChan)
+				return
+			}
+			objChan <- obj
+		}
+	}()
+
+	// Start workers to process objects
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for obj := range objChan {
+				// Check include/exclude matchers.
+				if include != nil && !include.Match(obj.Key) {
+					d.logger.Infof("  remote dropping %q due to include\n", obj.Key)
+					continue
+				}
+				if exclude != nil && exclude.Match(obj.Key) {
+					d.logger.Infof("  remote dropping %q due to exclude\n", obj.Key)
+					continue
+				}
+
+				// Handle MD5 computation
+				if len(obj.MD5) == 0 {
+					var attrMD5 []byte
+					attrs, err := bucket.Attributes(ctx, obj.Key)
+					if err == nil {
+						md5String, exists := attrs.Metadata[metaMD5Hash]
+						if exists {
+							attrMD5, _ = hex.DecodeString(md5String)
+						}
 					}
-					r.Close()
+					if len(attrMD5) == 0 {
+						md5StartTime := time.Now()
+						r, err := bucket.NewReader(ctx, obj.Key, nil)
+						if err == nil {
+							h := md5.New()
+							if _, err := io.Copy(h, r); err == nil {
+								obj.MD5 = h.Sum(nil)
+							}
+							r.Close()
+						}
+						d.logger.Warnf("attrMD5 took %v for %s", time.Since(md5StartTime), obj.Key)
+					} else {
+						obj.MD5 = attrMD5
+					}
 				}
-				d.logger.Warnf("attrMD5 took %v for %s", time.Since(md5StartTime), obj.Key)
-			} else {
-				obj.MD5 = attrMD5
+				retval.Store(obj.Key, obj)
 			}
-		}
-		retval[obj.Key] = obj
+		}()
 	}
+
+	// Wait for all workers to finish
+	wg.Wait()
+
+	// Check for any errors from the listing goroutine
+	select {
+	case err := <-errs:
+		return nil, err
+	default:
+	}
+
+	// Convert sync.Map to regular map
+	result := make(map[string]*blob.ListObject)
+	retval.Range(func(key, value interface{}) bool {
+		result[key.(string)] = value.(*blob.ListObject)
+		return true
+	})
+
 	d.logger.Warnf("Operation walkRemote took %v", time.Since(startTime))
 	d.logger.Printf("Operation walkRemote took %v\n", time.Since(startTime))
-	return retval, nil
+	return result, nil
 }
 
 // uploadReason is an enum of reasons why a file must be uploaded.
