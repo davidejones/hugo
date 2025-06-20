@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/gobwas/glob"
@@ -117,6 +118,7 @@ func (d *Deployer) openBucket(ctx context.Context) (*blob.Bucket, error) {
 
 // Deploy deploys the site to a target.
 func (d *Deployer) Deploy(ctx context.Context) error {
+	deployerStartTime := time.Now()
 	if d.logger == nil {
 		d.logger = loggers.NewDefault()
 	}
@@ -161,6 +163,8 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 	if len(uploads)+len(deletes) == 0 {
 		if !d.quiet {
 			d.logger.Println("No changes required.")
+			d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
+			d.logger.Printf("Operation Deploy took %v\n", time.Since(deployerStartTime))
 		}
 		return nil
 	}
@@ -294,6 +298,8 @@ func (d *Deployer) Deploy(ctx context.Context) error {
 		}
 		d.logger.Println("Success!")
 	}
+	d.logger.Warnf("Operation Deploy took %v", time.Since(deployerStartTime))
+	d.logger.Printf("Operation Deploy took %v\n", time.Since(deployerStartTime))
 	return nil
 }
 
@@ -487,6 +493,7 @@ func knownHiddenDirectory(name string) bool {
 // walkLocal walks the source directory and returns a flat list of files,
 // using localFile.SlashPath as the map keys.
 func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, include, exclude glob.Glob, mediaTypes media.Types, mappath func(string) string) (map[string]*localFile, error) {
+	startTime := time.Now()
 	retval := map[string]*localFile{}
 	err := afero.Walk(fs, "", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -547,6 +554,8 @@ func (d *Deployer) walkLocal(fs afero.Fs, matchers []*deployconfig.Matcher, incl
 	if err != nil {
 		return nil, err
 	}
+	d.logger.Warnf("Operation walkLocal took %v", time.Since(startTime))
+	d.logger.Printf("Operation walkLocal took %v\n", time.Since(startTime))
 	return retval, nil
 }
 
@@ -561,6 +570,7 @@ func stripIndexHTML(slashpath string) string {
 
 // walkRemote walks the target bucket and returns a flat list.
 func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include, exclude glob.Glob) (map[string]*blob.ListObject, error) {
+	startTime := time.Now()
 	retval := map[string]*blob.ListObject{}
 	iter := bucket.List(nil)
 	for {
@@ -611,6 +621,8 @@ func (d *Deployer) walkRemote(ctx context.Context, bucket *blob.Bucket, include,
 		}
 		retval[obj.Key] = obj
 	}
+	d.logger.Warnf("Operation walkRemote took %v", time.Since(startTime))
+	d.logger.Printf("Operation walkRemote took %v\n", time.Since(startTime))
 	return retval, nil
 }
 
@@ -651,6 +663,7 @@ func (u *fileToUpload) String() string {
 // applied to the remote target. It returns a slice of *fileToUpload and a
 // slice of paths for files to delete.
 func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[string]*blob.ListObject, force bool) ([]*fileToUpload, []string) {
+	startTime := time.Now()
 	var uploads []*fileToUpload
 	var deletes []string
 
@@ -712,6 +725,7 @@ func (d *Deployer) findDiffs(localFiles map[string]*localFile, remoteFiles map[s
 			deletes = append(deletes, path)
 		}
 	}
+	d.logger.Warnf("Operation findDiffs took %v", time.Since(startTime))
 	return uploads, deletes
 }
 
