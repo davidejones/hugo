@@ -309,11 +309,13 @@ func summarizeChanges(uploads []*fileToUpload, deletes []string) string {
 // doSingleUpload executes a single file upload.
 func (d *Deployer) doSingleUpload(ctx context.Context, bucket *blob.Bucket, upload *fileToUpload) error {
 	d.logger.Infof("Uploading %v...\n", upload)
+	provider := getProviderFromURL(d.target.URL)
 	opts := &blob.WriterOptions{
 		CacheControl:    upload.Local.CacheControl(),
 		ContentEncoding: upload.Local.ContentEncoding(),
 		ContentType:     upload.Local.ContentType(),
 		Metadata:        map[string]string{metaMD5Hash: hex.EncodeToString(upload.Local.MD5())},
+		MaxConcurrency:  upload.Local.MaxConcurrency(provider),
 	}
 	w, err := bucket.NewWriter(ctx, upload.Local.SlashPath, opts)
 	if err != nil {
@@ -443,6 +445,50 @@ func (lf *localFile) ContentType() string {
 	}
 
 	return mime.TypeByExtension(ext)
+}
+
+func getProviderFromURL(targetURL string) string {
+	switch {
+	case strings.HasPrefix(targetURL, "gs://"):
+		return "gs"
+	case strings.HasPrefix(targetURL, "s3://"):
+		return "s3"
+	case strings.HasPrefix(targetURL, "azblob://"):
+		return "azure"
+	case strings.HasPrefix(targetURL, "file://"):
+		return "file"
+	default:
+		return "unknown"
+	}
+}
+
+// MaxConcurrency returns a concurrency setting based on specific file sizes as a hard value is ineffective in different scenarios.
+// AWS S3 only uses multipart uploads for files >5 MB. For files smaller than that, MaxConcurrency is ignored
+// Setting to 0 defaults to the drivers settings which if not specified in turn default to the aws sdk.
+func (lf *localFile) MaxConcurrency(provider string) string {
+	if lf.matcher == nil {
+		return 0
+	}
+
+	switch provider {
+	case "s3":
+		switch {
+		case upload.Local.UploadSize > 1<<30: // > 1GB
+			return 16
+		case upload.Local.UploadSize > 1<<28: // > 256MB
+			return 10
+		case upload.Local.UploadSize > 1<<26: // > 64MB
+			return 8
+		case upload.Local.UploadSize > 1<<24: // > 16MB
+			return 5
+		default:
+			// let gcloud.dev use reasonable defaults
+			return 0
+		}
+	default:
+		// For now let gcloud.dev use reasonable defaults for other providers
+		return 0
+	}
 }
 
 // Force returns true if the file should be forced to re-upload based on the
