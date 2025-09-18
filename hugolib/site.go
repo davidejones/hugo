@@ -1613,3 +1613,9 @@ func (s *Site) render(ctx *siteRenderContext) (err error) {
 
 	return
 }
+
+
+// Publisher returns the site's Publisher implementation.
+func (s *Site) Publisher() publisher.Publisher {
+	return s.publisher
+}

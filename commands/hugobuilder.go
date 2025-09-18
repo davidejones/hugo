@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,8 +45,10 @@ import (
 	"github.com/gohugoio/hugo/hugolib/filesystems"
 	"github.com/gohugoio/hugo/identity"
 	"github.com/gohugoio/hugo/livereload"
+	"github.com/gohugoio/hugo/publisher"
 	"github.com/gohugoio/hugo/resources/page"
 	"github.com/gohugoio/hugo/watcher"
+	"github.com/spf13/afero"
 	"github.com/spf13/fsync"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -73,6 +76,9 @@ type hugoBuilder struct {
 	showErrorInBrowser bool
 
 	errState hugoBuilderErrState
+
+	// Plan mode: collected static file paths
+	planStaticPaths []string
 }
 
 var errConfigNotSet = errors.New("config not set")
@@ -422,7 +428,7 @@ func (c *hugoBuilder) buildSites(noBuildLock bool) (err error) {
 	if err != nil {
 		return
 	}
-	err = h.Build(hugolib.BuildCfg{NoBuildLock: noBuildLock})
+	err = h.Build(hugolib.BuildCfg{NoBuildLock: noBuildLock, Plan: c.r.plan})
 	return
 }
 
@@ -445,12 +451,19 @@ func (c *hugoBuilder) copyStaticTo(sourceFs *filesystems.SourceFilesystem) (uint
 	fs := &countingStatFs{Fs: sourceFs.Fs}
 
 	syncer := fsync.NewSyncer()
+	var memfs afero.Fs
 	c.withConf(func(conf *commonConfig) {
 		syncer.NoTimes = conf.configs.Base.NoTimes
 		syncer.NoChmod = conf.configs.Base.NoChmod
 		syncer.ChmodFilter = chmodFilter
 
-		syncer.DestFs = conf.fs.PublishDirStatic
+		if c.r.plan {
+			// In plan mode, write to memory to avoid touching disk.
+			memfs = afero.NewMemMapFs()
+			syncer.DestFs = memfs
+		} else {
+			syncer.DestFs = conf.fs.PublishDirStatic
+		}
 		// Now that we are using a unionFs for the static directories
 		// We can effectively clean the publishDir on initial sync
 		syncer.Delete = conf.configs.Base.CleanDestinationDir
@@ -474,6 +487,21 @@ func (c *hugoBuilder) copyStaticTo(sourceFs *filesystems.SourceFilesystem) (uint
 		return 0, err
 	}
 	loggers.TimeTrackf(infol, start, nil, "syncing static files to %s", publishDir)
+
+	// If plan mode, collect the file list from memfs.
+	if memfs != nil {
+		var paths []string
+		afero.Walk(memfs, publishDir, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info != nil && info.Mode().IsRegular() {
+				paths = append(paths, p)
+			}
+			return nil
+		})
+		c.planStaticPaths = append(c.planStaticPaths, paths...)
+	}
 
 	// Sync runs Stat 2 times for every source file.
 	numFiles := fs.statCounter / 2
@@ -582,6 +610,29 @@ func (c *hugoBuilder) fullBuild(noBuildLock bool) error {
 		for _, s := range h.Sites {
 			// We have no way of knowing what site the garbage belonged to.
 			s.ProcessingStats.Cleaned = uint64(count)
+		}
+	}
+
+	// In plan mode, output the full list of files that would be written.
+	if c.r.plan {
+		m := make(map[string]struct{})
+		for _, p := range c.planStaticPaths {
+			m[p] = struct{}{}
+		}
+		for _, s := range h.Sites {
+			if pp, ok := s.Publisher().(*publisher.PlanPublisher); ok {
+				for _, p := range pp.Paths() {
+					m[p] = struct{}{}
+				}
+			}
+		}
+		paths := make([]string, 0, len(m))
+		for p := range m {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			fmt.Fprintln(c.r.StdOut, p)
 		}
 	}
 
