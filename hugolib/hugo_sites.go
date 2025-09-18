@@ -407,8 +407,8 @@ type BuildCfg struct {
 	// Skip rendering. Useful for testing.
 	SkipRender bool
 
-	// Plan build: Do not write any files, just output the list of files that would be written.
-	Plan bool
+	// dryRun build: Do not write any files, just output the list of files that would be written.
+	DryRun bool
 
 	// Use this to indicate what changed (for rebuilds).
 	WhatChanged *WhatChanged

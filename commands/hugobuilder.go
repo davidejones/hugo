@@ -77,7 +77,7 @@ type hugoBuilder struct {
 
 	errState hugoBuilderErrState
 
-	// Plan mode: collected static file paths
+	// dryRun mode: collected static file paths
 	planStaticPaths []string
 }
 
@@ -428,7 +428,7 @@ func (c *hugoBuilder) buildSites(noBuildLock bool) (err error) {
 	if err != nil {
 		return
 	}
-	err = h.Build(hugolib.BuildCfg{NoBuildLock: noBuildLock, Plan: c.r.plan})
+	err = h.Build(hugolib.BuildCfg{NoBuildLock: noBuildLock, DryRun: c.r.dryRun})
 	return
 }
 
@@ -457,8 +457,8 @@ func (c *hugoBuilder) copyStaticTo(sourceFs *filesystems.SourceFilesystem) (uint
 		syncer.NoChmod = conf.configs.Base.NoChmod
 		syncer.ChmodFilter = chmodFilter
 
-		if c.r.plan {
-			// In plan mode, write to memory to avoid touching disk.
+		if c.r.dryRun {
+			// In dryRun mode, write to memory to avoid touching disk.
 			memfs = afero.NewMemMapFs()
 			syncer.DestFs = memfs
 		} else {
@@ -614,7 +614,7 @@ func (c *hugoBuilder) fullBuild(noBuildLock bool) error {
 	}
 
 	// In plan mode, output the full list of files that would be written.
-	if c.r.plan {
+	if c.r.dryRun {
 		m := make(map[string]struct{})
 		for _, p := range c.planStaticPaths {
 			m[p] = struct{}{}

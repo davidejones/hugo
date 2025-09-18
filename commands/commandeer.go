@@ -149,8 +149,8 @@ type rootCommand struct {
 	cfgFile string
 	cfgDir  string
 
-	// Plan mode: do not write files, only list them.
-	plan bool
+	// dryRun mode: do not write files, only list them.
+	dryRun bool
 }
 
 func (r *rootCommand) isVerbose() bool {
@@ -607,7 +607,7 @@ func applyLocalFlagsBuild(cmd *cobra.Command, r *rootCommand) {
 	cmd.Flags().BoolVarP(&r.printm, "printMemoryUsage", "", false, "print memory usage to screen at intervals")
 	cmd.Flags().StringVarP(&r.mutexprofile, "profile-mutex", "", "", "write Mutex profile to `file`")
 	cmd.Flags().StringVarP(&r.traceprofile, "trace", "", "", "write trace to `file` (not useful in general)")
-	cmd.Flags().BoolVar(&r.plan, "plan", false, "output the list of files that would be generated without writing them")
+	cmd.Flags().BoolVar(&r.dryRun, "dryRun", false, "output the list of files that would be generated without writing them")
 
 	// Hide these for now.
 	cmd.Flags().MarkHidden("profile-cpu")

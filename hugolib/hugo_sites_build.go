@@ -115,7 +115,7 @@ func (h *HugoSites) Build(config BuildCfg, events ...fsnotify.Event) error {
 
 	// Need a pointer as this may be modified.
 	conf := &config
-	if conf.Plan {
+	if conf.DryRun {
 		// Switch to plan publisher: don't write, just collect target paths.
 		for _, s := range h.Sites {
 			s.publisher = publisher.NewPlanPublisher()
