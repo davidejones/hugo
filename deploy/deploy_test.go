@@ -187,6 +187,19 @@ func TestFindDiffs(t *testing.T) {
 			},
 			WantDeletes: []string{"stale", "stale2"},
 		},
+		{
+			Description: "remote has // path",
+			Local: []*localFile{
+				makeLocal(filepath.Join("foo", "bar", "index.html"), 1, hash1),
+			},
+			Remote: []*blob.ListObject{
+				makeRemote("foo/bar//index.html", 1, hash1),
+			},
+			WantUpdates: []*fileToUpload{
+				{makeLocal(filepath.Join("foo", "bar", "index.html"), 1, hash1), reasonNotFound},
+			},
+			WantDeletes: []string{"foo/bar//index.html"},
+		},
 	}
 
 	for _, tc := range tests {
