@@ -70,6 +70,7 @@ func init() {
 		Pandoc:           Builtin.PandocType,
 		ReStructuredText: Builtin.ReStructuredTextType,
 		EmacsOrgMode:     Builtin.EmacsOrgModeType,
+		Markdoc:          Builtin.MarkdocType,
 	}
 
 	DefaultContentTypes.init(nil)
@@ -89,6 +90,7 @@ type ContentTypes struct {
 	Pandoc           Type
 	ReStructuredText Type
 	EmacsOrgMode     Type
+	Markdoc          Type
 
 	types Types
 
@@ -118,6 +120,9 @@ func (t *ContentTypes) init(types Types) {
 	}
 	if tt, ok := types.GetByType(t.EmacsOrgMode.Type); ok {
 		t.EmacsOrgMode = tt
+	}
+	if tt, ok := types.GetByType(t.Markdoc.Type); ok {
+		t.Markdoc = tt
 	}
 
 	t.extensionSet = make(map[string]bool)
@@ -173,6 +178,7 @@ var defaultContentTypesConfig = map[string]ContentTypeConfig{
 	Builtin.PandocType.Type:           {},
 	Builtin.ReStructuredTextType.Type: {},
 	Builtin.EmacsOrgModeType.Type:     {},
+	Builtin.MarkdocType.Type:          {},
 }
 
 // DecodeContentTypes decodes the given map of content types.

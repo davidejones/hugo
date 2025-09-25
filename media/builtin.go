@@ -41,6 +41,7 @@ type BuiltinTypes struct {
 	AsciiDocType         Type
 	PandocType           Type
 	ReStructuredTextType Type
+	MarkdocType          Type
 
 	// Common video types
 	AVIType  Type
@@ -97,6 +98,7 @@ var Builtin = BuiltinTypes{
 	PandocType:           Type{Type: "text/pandoc"},
 	ReStructuredTextType: Type{Type: "text/rst"}, // https://docutils.sourceforge.io/FAQ.html#what-s-the-official-mime-type-for-restructuredtext-data
 	EmacsOrgModeType:     Type{Type: "text/org"},
+	MarkdocType:          Type{Type: "text/markdoc"},
 
 	// Common video types
 	AVIType:  Type{Type: "video/x-msvideo"},
@@ -153,6 +155,7 @@ var defaultMediaTypesConfig = map[string]any{
 	"text/pandoc":     map[string]any{"suffixes": []string{"pandoc", "pdc"}},
 	"text/rst":        map[string]any{"suffixes": []string{"rst"}},
 	"text/org":        map[string]any{"suffixes": []string{"org"}},
+	"text/markdoc":    map[string]any{"suffixes": []string{"mdoc"}},
 
 	// Common video types
 	"video/x-msvideo": map[string]any{"suffixes": []string{"avi"}},

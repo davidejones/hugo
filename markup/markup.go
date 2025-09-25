@@ -31,6 +31,7 @@ import (
 	"github.com/gohugoio/hugo/markup/converter"
 	"github.com/gohugoio/hugo/markup/pandoc"
 	"github.com/gohugoio/hugo/markup/rst"
+	"github.com/gohugoio/hugo/markup/markdoc"
 )
 
 func NewConverterProvider(cfg converter.ProviderConfig) (ConverterProvider, error) {
@@ -80,6 +81,9 @@ func NewConverterProvider(cfg converter.ProviderConfig) (ConverterProvider, erro
 		return nil, err
 	}
 	if err := add(org.Provider, contentTypes.EmacsOrgMode.SubType, contentTypes.EmacsOrgMode.Suffixes()...); err != nil {
+		return nil, err
+	}
+	if err := add(markdoc.Provider, contentTypes.Markdoc.SubType, contentTypes.Markdoc.Suffixes()...); err != nil {
 		return nil, err
 	}
 
