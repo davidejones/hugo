@@ -74,9 +74,7 @@ func (c *markdocConverter) getMarkdocContent(src []byte, ctx converter.DocumentC
 	// Try to locate the Markdoc CLI script in local node_modules.
 	// We accept a few common locations; the user requested a script named mdoc.js.
 	candidates := []string{
-		filepath.FromSlash("node_modules/mdoc.js"),
-		filepath.FromSlash("node_modules/mdoc/bin/mdoc.js"),
-		filepath.FromSlash("node_modules/.bin/mdoc.js"),
+		filepath.FromSlash("local/bin/js/cdocs-hugo.js"),
 	}
 
 	var scriptPath string
@@ -97,7 +95,7 @@ func (c *markdocConverter) getMarkdocContent(src []byte, ctx converter.DocumentC
 		// Note: We cannot pass paths with slashes to internal.ExternallyRenderContent's binaryName,
 		// so we always use the node binary and pass the script as the first argument.
 		// If no script file can be found, leave content as-is.
-		logger.Println("mdoc.js not found in local node_modules: Please install the Markdoc CLI.\n",
+		logger.Println("cdocs-hugo.js not found locally: Please install the Customizable Docs.\n",
 			"                 Leaving Markdoc content unrendered.")
 		return src, nil
 	}
